@@ -1,0 +1,15 @@
+{
+  "name": "painel-sla-av3",
+  "version": "1.0.0",
+  "description": "AV3 BD - Parte 5: Express ligado ao banco altave_av3",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^4.21.2",
+    "mysql2": "^3.11.5"
+  }
+}

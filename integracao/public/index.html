@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel de SLA - Altave</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f3f5f8; color: #222; }
+  header { background: #1f3a5f; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .8; }
+  main { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; padding: 16px 24px; }
+  section { background: #fff; border-radius: 8px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid #e5e5e5; }
+  th { background: #f0f2f5; }
+  tr.sel { background: #e8f0ff; }
+  tbody tr { cursor: pointer; }
+  .sla { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #fff; }
+  .VENCIDO { background: #c0392b; } .VENCE_EM_24H { background: #e67e22; } .NO_PRAZO { background: #27ae60; }
+  label { font-size: 13px; display: block; margin: 8px 0 3px; }
+  select, input, button { font-size: 13px; padding: 5px; }
+  select, input { width: 100%; box-sizing: border-box; }
+  button { background: #1f3a5f; color: #fff; border: 0; border-radius: 4px; cursor: pointer; margin-top: 8px; }
+  .msg { margin-top: 8px; font-size: 13px; padding: 6px; border-radius: 4px; }
+  .ok { background: #e3f6e8; color: #1e6b34; } .erro { background: #fdeaea; color: #922; }
+  .alerta { font-size: 12px; border-left: 4px solid #e67e22; padding: 4px 8px; margin-bottom: 6px; background: #fff8f0; }
+  .alerta.VENCIDO { border-color: #c0392b; background: #fdf0ef; }
+  .lista { max-height: 300px; overflow: auto; }
+  .hist { font-size: 12px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Painel de SLA dos Tickets</h1>
+  <p>Integração com o banco altave_av3 - functions fn_status_sla / fn_nome_responsavel e procedures sp_gerar_alertas_sla / sp_alocar_equipe_ticket</p>
+</header>
+<main>
+  <section>
+    <h2>Tickets abertos (fn_status_sla)</h2>
+    <label>Filtrar por equipe</label>
+    <select id="filtroEquipe"><option value="">Todas as equipes</option></select>
+    <div class="lista" style="max-height:520px;margin-top:8px">
+      <table>
+        <thead><tr><th>Ticket</th><th>Cliente</th><th>Prioridade</th><th>SLA</th><th>Situação</th><th>Responsável</th></tr></thead>
+        <tbody id="tickets"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div>
+    <section>
+      <h2>Alertas de SLA (sp_gerar_alertas_sla)</h2>
+      <label>Vencidos ou vencendo nas próximas (horas)</label>
+      <input id="horas" type="number" value="24" min="1">
+      <button id="btnAlertas">Gerar alertas</button>
+      <p id="totalAlertas" style="font-size:13px"></p>
+      <div id="alertas" class="lista"></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>Pedir apoio de equipe (sp_alocar_equipe_ticket)</h2>
+      <p id="ticketSel" style="font-size:13px">Clique em um ticket da lista.</p>
+      <label>Sua equipe</label>
+      <select id="minhaEquipe"></select>
+      <label>Você (técnico)</label>
+      <select id="tecnico"></select>
+      <label>Equipe de apoio</label>
+      <select id="equipeApoio"></select>
+      <button id="btnApoio">Solicitar apoio</button>
+      <div id="msgApoio"></div>
+      <h2 style="margin-top:14px">Histórico do ticket</h2>
+      <div id="historico" class="lista"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+let ticketSelecionado = null;
+const $ = (id) => document.getElementById(id);
+
+async function api(url, opcoes) {
+  const resp = await fetch(url, opcoes);
+  return resp.json();
+}
+
+function opcoes(select, itens, vazio) {
+  select.innerHTML = vazio ? `<option value="">${vazio}</option>` : "";
+  itens.forEach((i) => select.insertAdjacentHTML("beforeend", `<option value="${i.id}">${i.nome}</option>`));
+}
+
+async function carregarEquipes() {
+  const equipes = await api("/api/equipes");
+  opcoes($("filtroEquipe"), equipes, "Todas as equipes");
+  opcoes($("minhaEquipe"), equipes);
+  opcoes($("equipeApoio"), equipes);
+  await carregarTecnicos();
+}
+
+async function carregarTecnicos() {
+  const tecnicos = await api(`/api/equipes/${$("minhaEquipe").value}/tecnicos`);
+  opcoes($("tecnico"), tecnicos);
+}
+
+async function carregarTickets() {
+  const equipe = $("filtroEquipe").value;
+  const tickets = await api("/api/tickets" + (equipe ? `?equipeId=${equipe}` : ""));
+  $("tickets").innerHTML = tickets.map((t) => `
+    <tr data-id="${t.ticket_id}" data-titulo="${t.titulo}" class="${t.ticket_id === ticketSelecionado ? "sel" : ""}">
+      <td>${t.titulo}</td><td>${t.cliente}</td><td>${t.prioridade}</td>
+      <td>${t.sla_em.slice(0, 16)}</td>
+      <td><span class="sla ${t.situacao_sla}">${t.situacao_sla}</span></td>
+      <td>${t.responsavel}</td>
+    </tr>`).join("");
+}
+
+async function gerarAlertas() {
+  const dados = await api(`/api/alertas-sla?horas=${$("horas").value}`);
+  $("totalAlertas").textContent = `Total de alertas (parâmetro OUT p_qtd): ${dados.total}`;
+  $("alertas").innerHTML = dados.alertas.map((a) => `
+    <div class="alerta ${a.situacao}"><b>${a.situacao}</b> - ${a.prioridade}<br>${a.mensagem}</div>`).join("");
+}
+
+async function carregarHistorico() {
+  if (!ticketSelecionado) return;
+  const itens = await api(`/api/tickets/${ticketSelecionado}/historico`);
+  $("historico").innerHTML = itens.map((h) =>
+    `<div class="hist"><b>${h.evento}</b> (${h.criado_em.slice(0, 16)})<br>${h.descricao}</div>`).join("");
+}
+
+async function pedirApoio() {
+  if (!ticketSelecionado) {
+    $("msgApoio").innerHTML = `<div class="msg erro">Selecione um ticket.</div>`;
+    return;
+  }
+  const r = await api(`/api/tickets/${ticketSelecionado}/equipes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ equipeId: $("equipeApoio").value, usuarioId: $("tecnico").value }),
+  });
+  $("msgApoio").innerHTML = `<div class="msg ${r.sucesso ? "ok" : "erro"}">${r.mensagem || r.erro}</div>`;
+  carregarHistorico();
+}
+
+$("tickets").addEventListener("click", (e) => {
+  const linha = e.target.closest("tr");
+  if (!linha) return;
+  ticketSelecionado = linha.dataset.id;
+  $("ticketSel").textContent = "Ticket: " + linha.dataset.titulo;
+  document.querySelectorAll("#tickets tr").forEach((tr) => tr.classList.toggle("sel", tr === linha));
+  $("msgApoio").innerHTML = "";
+  carregarHistorico();
+  // pré-seleciona como "sua equipe" uma das equipes que já estão no ticket
+  api(`/api/tickets/${ticketSelecionado}/equipes`).then((equipes) => {
+    $("ticketSel").textContent += " | Equipes: " + equipes.map((e) => e.nome).join(", ");
+    if (equipes.length) {
+      $("minhaEquipe").value = equipes[0].id;
+      carregarTecnicos();
+    }
+  });
+});
+$("filtroEquipe").addEventListener("change", carregarTickets);
+$("minhaEquipe").addEventListener("change", carregarTecnicos);
+$("btnAlertas").addEventListener("click", gerarAlertas);
+$("btnApoio").addEventListener("click", pedirApoio);
+
+carregarEquipes().then(() => { carregarTickets(); gerarAlertas(); });
+</script>
+</body>
+</html>
