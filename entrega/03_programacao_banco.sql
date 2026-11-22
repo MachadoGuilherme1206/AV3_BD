@@ -1,13 +1,6 @@
 -- =====================================================================
 -- 3ª Avaliação de Banco de Dados Relacional - 2º Semestre de 2026
 -- Dupla: Guilherme Machado Silva / Nathan Ariel Damasio Leão - 2DSM
---
--- ARQUIVO 03 - Programação em Banco de Dados
---   2 views de apoio
---   6 functions   (fn_)
---   6 procedures  (sp_)
---   6 triggers    (trg_)
--- Executar DEPOIS dos arquivos 01 (DDL) e 02 (DML).
 -- =====================================================================
 
 USE altave_av3;
